@@ -1,0 +1,35 @@
+name: Auto release for RunPod rebuild
+
+# RunPod's "Import Git Repository" integration only rebuilds the worker
+# when a new GitHub Release is published. This workflow creates one
+# automatically on every push to main, so commits deploy themselves.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "worker/**"
+      - "api/**"
+      - ".github/workflows/**"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create release (triggers RunPod rebuild)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="deploy-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
+          gh release create "$TAG" \
+            --title "Deploy $TAG" \
+            --notes "Automatic deploy of commit ${GITHUB_SHA::7}:
+          $(git log -1 --pretty=%B)" \
+            --target main
