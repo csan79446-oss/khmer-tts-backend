@@ -101,14 +101,21 @@ def handler(event: dict) -> dict:
 
         wav = MODEL.generate(**kwargs)
         wav = np.asarray(wav).squeeze()
-        sample_rate = int(MODEL.tts_model.sample_rate)
-        # Optional manual override in RunPod env vars (e.g. OUTPUT_SAMPLE_RATE=44100)
-        # if the model wrapper reports a rate that doesn't match the generated audio
-        # (mismatch makes playback run faster/slower than recorded).
+        reported_rate = int(MODEL.tts_model.sample_rate)
+        # VoxCPM2 officially outputs 48kHz studio-quality audio (AudioVAE V2).
+        # Some wrappers report a stale rate inherited from older VoxCPM releases,
+        # which makes playback run at the wrong speed. Trust the official spec
+        # for VoxCPM2; a manual OUTPUT_SAMPLE_RATE env var always wins.
         override = int(os.getenv("OUTPUT_SAMPLE_RATE", "0"))
         if override > 0:
-            print(f"[handler] overriding reported sample_rate {sample_rate} -> {override}", flush=True)
             sample_rate = override
+            print(f"[handler] OUTPUT_SAMPLE_RATE override: {reported_rate} -> {override}", flush=True)
+        elif "voxcpm2" in MODEL_ID.lower():
+            sample_rate = 48000
+            if reported_rate != sample_rate:
+                print(f"[handler] wrapper reported {reported_rate} Hz but VoxCPM2 spec is 48000 Hz; using spec", flush=True)
+        else:
+            sample_rate = reported_rate
         duration = float(len(wav)) / float(sample_rate)
         print(
             f"[handler] output: sample_rate={sample_rate} Hz, samples={len(wav)}, duration={duration:.2f}s",
