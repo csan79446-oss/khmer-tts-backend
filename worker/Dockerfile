@@ -1,6 +1,6 @@
 # Use a CUDA/PyTorch base image compatible with the selected RunPod GPU.
-# Verify the image's PyTorch and CUDA versions against the installed VoxCPM release.
-FROM pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
+# PyTorch 2.7.1 + CUDA 12.8 supports Blackwell GPUs (RTX 50xx, B200) as well as older cards.
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
 
 WORKDIR /worker
 COPY requirements.txt .

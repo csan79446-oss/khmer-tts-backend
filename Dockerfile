@@ -1,6 +1,7 @@
 # Root Dockerfile for RunPod GitHub integration.
 # RunPod builds this file with the repository root as its context.
-FROM pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
+# PyTorch 2.7.1 + CUDA 12.8 supports Blackwell GPUs (RTX 50xx, B200) as well as older cards.
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
 
 WORKDIR /worker
 COPY worker/requirements.txt ./requirements.txt
