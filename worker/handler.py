@@ -100,15 +100,28 @@ def handler(event: dict) -> dict:
         kwargs = _filter_kwargs(kwargs)
 
         wav = MODEL.generate(**kwargs)
+        wav = np.asarray(wav).squeeze()
         sample_rate = int(MODEL.tts_model.sample_rate)
+        # Optional manual override in RunPod env vars (e.g. OUTPUT_SAMPLE_RATE=44100)
+        # if the model wrapper reports a rate that doesn't match the generated audio
+        # (mismatch makes playback run faster/slower than recorded).
+        override = int(os.getenv("OUTPUT_SAMPLE_RATE", "0"))
+        if override > 0:
+            print(f"[handler] overriding reported sample_rate {sample_rate} -> {override}", flush=True)
+            sample_rate = override
+        duration = float(len(wav)) / float(sample_rate)
+        print(
+            f"[handler] output: sample_rate={sample_rate} Hz, samples={len(wav)}, duration={duration:.2f}s",
+            flush=True,
+        )
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as output:
             output_path = Path(output.name)
         try:
-            sf.write(output_path, np.asarray(wav), sample_rate, subtype="PCM_16")
+            sf.write(output_path, wav, sample_rate, subtype="PCM_16")
             audio = base64.b64encode(output_path.read_bytes()).decode("ascii")
         finally:
             output_path.unlink(missing_ok=True)
-        return {"audio_base64": audio, "sample_rate": sample_rate}
+        return {"audio_base64": audio, "sample_rate": sample_rate, "duration": round(duration, 3)}
     finally:
         if reference_path:
             Path(reference_path).unlink(missing_ok=True)
