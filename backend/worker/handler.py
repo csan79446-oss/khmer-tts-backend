@@ -163,7 +163,16 @@ def handler(event: dict) -> dict:
                 kwargs["prompt_text"] = transcript
         kwargs = _filter_kwargs(kwargs)
 
-        generated = MODEL.generate(**kwargs)
+        try:
+            generated = MODEL.generate(**kwargs)
+        except ValueError as exc:
+            if "KV cache is full" in str(exc):
+                raise ValueError(
+                    "VoxCPM2's 8192-token KV cache overflowed. Use a shorter "
+                    "reference clip (or lower MAX_REFERENCE_AUDIO_SECONDS) and/or "
+                    "shorter text, then try again."
+                ) from exc
+            raise
         # voxcpm>=2.1 returns a generator that yields the waveform, while
         # voxcpm 2.0.x returns the numpy array directly. Consume whichever
         # we get so playback speed is never doubled by a wrapped generator.

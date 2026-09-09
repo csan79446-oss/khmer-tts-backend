@@ -209,7 +209,24 @@ def main() -> None:
     assert rate == 48000, f"generator path: expected rate 48000, got {rate}"
     print("PASS 12: generate() generator is consumed (no 0-d object array wrap)")
 
-    print("\nALL 12 WORKER TESTS PASSED")
+    # 13. KV cache overflow from generate() surfaces a clear, actionable
+    #     ValueError instead of a raw traceback.
+    class KVCacheFullModel(FakeModel):
+        def generate(self, text, prompt_wav_path=None, prompt_text=None, cfg_value=2.0,
+                     inference_timesteps=10, normalize=False, denoise=False):
+            raise ValueError("KV cache is full")
+
+    install_stubs(KVCacheFullModel)
+    mod = load_handler()
+    try:
+        mod.handler({"input": {"mode": "design", "text": "hello"}})
+        raise AssertionError("should have raised")
+    except ValueError as exc:
+        assert "KV cache" in str(exc), f"unexpected error message: {exc}"
+        assert "shorter" in str(exc), f"error should guide the user: {exc}"
+    print("PASS 13: KV cache overflow raises a clear, actionable ValueError")
+
+    print("\nALL 13 WORKER TESTS PASSED")
 
 
 if __name__ == "__main__":
