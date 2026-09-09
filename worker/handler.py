@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import inspect
+import io
 import os
 import tempfile
 from pathlib import Path
@@ -53,6 +54,50 @@ def _filter_kwargs(kwargs: dict) -> dict:
     return filtered
 
 
+def _materialize_reference_wav(encoded_reference: str) -> str:
+    """Decode an arbitrary base64 audio payload into a plain PCM WAV temp file.
+
+    The desktop client uploads the reference file's raw bytes in whatever
+    container it was recorded/saved in (WAV, MP3, M4A, FLAC, WebM...). libsndfile
+    only parses a subset of those, and VoxCPM's loader needs a real WAV, so
+    re-mux everything here instead of trusting the bytes to be WAV.
+    """
+    raw = base64.b64decode(encoded_reference)
+    if not raw:
+        raise ValueError("reference_audio_base64 is empty")
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as reference:
+        wav_path = Path(reference.name)
+    try:
+        try:
+            data, sample_rate = sf.read(io.BytesIO(raw), dtype="float32", always_2d=True)
+            sf.write(wav_path, data, sample_rate, subtype="PCM_16")
+        except Exception:
+            # libsndfile could not parse it (e.g. M4A/AAC/WebM). Fall back to
+            # audioread via librosa, which shells out to ffmpeg when installed.
+            raw_path = wav_path.with_suffix(".raw")
+            try:
+                raw_path.write_bytes(raw)
+                import librosa
+
+                audio, sample_rate = librosa.load(str(raw_path), sr=None, mono=False)
+                audio = np.asarray(audio, dtype=np.float32)
+                if audio.ndim == 2:
+                    audio = audio.T  # (channels, samples) -> (samples, channels) for soundfile
+                sf.write(wav_path, audio, int(sample_rate), subtype="PCM_16")
+            except Exception as exc:
+                raise ValueError(
+                    "reference_audio_base64 could not be decoded as audio. "
+                    "WAV, FLAC, MP3 and OGG are supported natively; M4A/AAC/WebM "
+                    "additionally require ffmpeg in the worker image."
+                ) from exc
+            finally:
+                raw_path.unlink(missing_ok=True)
+    except Exception:
+        wav_path.unlink(missing_ok=True)
+        raise
+    return str(wav_path)
+
+
 def handler(event: dict) -> dict:
     request = event.get("input", {})
     text = str(request.get("text", "")).strip()
@@ -65,9 +110,7 @@ def handler(event: dict) -> dict:
     reference_path: str | None = None
     encoded_reference = request.get("reference_audio_base64")
     if encoded_reference:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as reference:
-            reference.write(base64.b64decode(encoded_reference))
-            reference_path = reference.name
+        reference_path = _materialize_reference_wav(encoded_reference)
 
     if mode in {"controllable_clone", "hi_fidelity_clone"} and not reference_path:
         raise ValueError(f"{mode} requires reference_audio_base64 with a readable audio file")
