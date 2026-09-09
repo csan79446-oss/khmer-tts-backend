@@ -100,6 +100,25 @@ def _materialize_reference_wav(encoded_reference: str) -> str:
                 raw_path.unlink(missing_ok=True)
 
         sample_rate = int(sample_rate)
+        # VoxCPM2's audio VAE operates at 48kHz. If the reference audio is at a
+        # different rate, VoxCPM's loader interprets the samples as 48kHz, which
+        # speeds up or slows down the cloned speech proportionally. Resample to
+        # 48kHz so the reference's timing is preserved during cloning.
+        target_rate = 48000
+        if sample_rate != target_rate:
+            try:
+                import librosa
+                data = librosa.resample(data.T if data.ndim == 2 else data, orig_sr=sample_rate, target_sr=target_rate).T
+            except Exception:
+                # librosa unavailable — fall back to a simple linear interp
+                from numpy import interp
+                old_len = data.shape[0]
+                new_len = int(round(old_len * target_rate / sample_rate))
+                if data.ndim == 2:
+                    data = np.column_stack([interp(np.arange(new_len), np.linspace(0, old_len - 1, new_len), data[:, ch]) for ch in range(data.shape[1])])
+                else:
+                    data = interp(np.arange(new_len), np.linspace(0, old_len - 1, new_len), data)
+            sample_rate = target_rate
         frames = data.shape[0]
         max_frames = int(MAX_REFERENCE_AUDIO_SECONDS * sample_rate)
         if frames > max_frames > 0:
@@ -179,18 +198,21 @@ def handler(event: dict) -> dict:
         wav = next(generated) if hasattr(generated, "__next__") else generated
         wav = np.asarray(wav).squeeze()
         reported_rate = int(MODEL.tts_model.sample_rate)
-        # The decoder's true output rate is audio_vae_config.out_sample_rate
-        # (48kHz for VoxCPM2). MODEL.tts_model.sample_rate already exposes
-        # that value, so trust it as the source of truth; a manual
-        # OUTPUT_SAMPLE_RATE env var always wins.
+        # VoxCPM2's audio VAE always outputs at 48kHz. Some wrapper builds report
+        # a different rate via tts_model.sample_rate (e.g. 16000 or 24000); if we
+        # trust that and write the WAV header with the wrong rate, playback sounds
+        # proportionally fast/slow. Force 48000 for VoxCPM2 unless OUTPUT_SAMPLE_RATE
+        # explicitly overrides it.
         override = int(os.getenv("OUTPUT_SAMPLE_RATE", "0"))
         if override > 0:
             sample_rate = override
             print(f"[handler] OUTPUT_SAMPLE_RATE override: {reported_rate} -> {override}", flush=True)
+        elif "voxcpm2" in MODEL_ID.lower():
+            sample_rate = 48000
+            if reported_rate != 48000:
+                print(f"[handler] wrapper reported {reported_rate} Hz but VoxCPM2 decoder outputs at 48000 Hz; forcing 48000 Hz (set OUTPUT_SAMPLE_RATE to override)", flush=True)
         else:
             sample_rate = reported_rate
-            if "voxcpm2" in MODEL_ID.lower() and reported_rate != 48000:
-                print(f"[handler] wrapper reported {reported_rate} Hz but VoxCPM2 spec is 48000 Hz; using reported rate {reported_rate} Hz (set OUTPUT_SAMPLE_RATE=48000 to force)", flush=True)
         duration = float(len(wav)) / float(sample_rate)
         print(
             f"[handler] output: sample_rate={sample_rate} Hz, samples={len(wav)}, duration={duration:.2f}s",
