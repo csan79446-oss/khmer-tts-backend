@@ -10,6 +10,7 @@ on:
     paths:
       - "Dockerfile"
       - "worker/**"
+      - "backend/worker/**"
       - "api/**"
       - ".github/workflows/**"
 
