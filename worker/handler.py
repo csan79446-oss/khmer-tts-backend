@@ -54,6 +54,12 @@ def _filter_kwargs(kwargs: dict) -> dict:
     return filtered
 
 
+# VoxCPM2's LM has an 8192-token KV cache. Long reference audios overflow it
+# during prompt prefill (RuntimeError: expanded size of the tensor (8192) must
+# match the existing size (9656)...), so cap how much prompt audio we keep.
+MAX_REFERENCE_AUDIO_SECONDS = float(os.getenv("MAX_REFERENCE_AUDIO_SECONDS", "10"))
+
+
 def _materialize_reference_wav(encoded_reference: str) -> str:
     """Decode an arbitrary base64 audio payload into a plain PCM WAV temp file.
 
@@ -61,6 +67,8 @@ def _materialize_reference_wav(encoded_reference: str) -> str:
     container it was recorded/saved in (WAV, MP3, M4A, FLAC, WebM...). libsndfile
     only parses a subset of those, and VoxCPM's loader needs a real WAV, so
     re-mux everything here instead of trusting the bytes to be WAV.
+    Overly long references are trimmed to MAX_REFERENCE_AUDIO_SECONDS to keep
+    the prompt cache inside the LM's 8192-token KV cache.
     """
     raw = base64.b64decode(encoded_reference)
     if not raw:
@@ -70,7 +78,6 @@ def _materialize_reference_wav(encoded_reference: str) -> str:
     try:
         try:
             data, sample_rate = sf.read(io.BytesIO(raw), dtype="float32", always_2d=True)
-            sf.write(wav_path, data, sample_rate, subtype="PCM_16")
         except Exception:
             # libsndfile could not parse it (e.g. M4A/AAC/WebM). Fall back to
             # audioread via librosa, which shells out to ffmpeg when installed.
@@ -83,7 +90,7 @@ def _materialize_reference_wav(encoded_reference: str) -> str:
                 audio = np.asarray(audio, dtype=np.float32)
                 if audio.ndim == 2:
                     audio = audio.T  # (channels, samples) -> (samples, channels) for soundfile
-                sf.write(wav_path, audio, int(sample_rate), subtype="PCM_16")
+                data = audio
             except Exception as exc:
                 raise ValueError(
                     "reference_audio_base64 could not be decoded as audio. "
@@ -92,6 +99,19 @@ def _materialize_reference_wav(encoded_reference: str) -> str:
                 ) from exc
             finally:
                 raw_path.unlink(missing_ok=True)
+
+        sample_rate = int(sample_rate)
+        frames = data.shape[0]
+        max_frames = int(MAX_REFERENCE_AUDIO_SECONDS * sample_rate)
+        if frames > max_frames > 0:
+            print(
+                f"[handler] reference audio too long: {frames / sample_rate:.1f}s exceeds "
+                f"{MAX_REFERENCE_AUDIO_SECONDS:g}s limit (VoxCPM2 8192-token prompt cache); "
+                f"keeping the first {MAX_REFERENCE_AUDIO_SECONDS:g}s",
+                flush=True,
+            )
+            data = data[:max_frames]
+        sf.write(wav_path, data, sample_rate, subtype="PCM_16")
     except Exception:
         wav_path.unlink(missing_ok=True)
         raise
