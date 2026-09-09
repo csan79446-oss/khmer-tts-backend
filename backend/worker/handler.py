@@ -53,7 +53,6 @@ def _filter_kwargs(kwargs: dict) -> dict:
         print(f"[handler] dropped unsupported generation params: {dropped}", flush=True)
     return filtered
 
-
 # VoxCPM2's LM has an 8192-token KV cache. Long reference audios overflow it
 # during prompt prefill (RuntimeError: expanded size of the tensor (8192) must
 # match the existing size (9656)...), so cap how much prompt audio we keep.
@@ -116,6 +115,8 @@ def _materialize_reference_wav(encoded_reference: str) -> str:
         wav_path.unlink(missing_ok=True)
         raise
     return str(wav_path)
+
+
 
 
 def handler(event: dict) -> dict:
