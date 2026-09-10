@@ -12,6 +12,17 @@ import runpod
 import soundfile as sf
 from voxcpm import VoxCPM
 
+# Ensure the worker directory is importable when handler.py is loaded from a
+# different working directory (e.g. tests/test_worker.py loads it via
+# importlib from the repo root).
+import sys
+
+_WORKER_DIR = str(Path(__file__).resolve().parent)
+if _WORKER_DIR not in sys.path:
+    sys.path.insert(0, _WORKER_DIR)
+
+from khmer_text_preparation import prepare_khmer_text
+
 
 MODEL_ID = os.getenv("MODEL_ID", "openbmb/VoxCPM2")
 MODEL = VoxCPM.from_pretrained(
@@ -53,11 +64,65 @@ def _filter_kwargs(kwargs: dict) -> dict:
         print(f"[handler] dropped unsupported generation params: {dropped}", flush=True)
     return filtered
 
-
 # VoxCPM2's LM has an 8192-token KV cache. Long reference audios overflow it
 # during prompt prefill (RuntimeError: expanded size of the tensor (8192) must
 # match the existing size (9656)...), so cap how much prompt audio we keep.
 MAX_REFERENCE_AUDIO_SECONDS = float(os.getenv("MAX_REFERENCE_AUDIO_SECONDS", "10"))
+
+
+def normalize_khmer_text(text: str) -> str:
+    """Clean and normalize Khmer text for better VoxCPM pronunciation.
+    
+    Common issues in Khmer text that affect TTS:
+    - Extra/repeated spaces
+    - Zero-width joiners/non-joiners (U+200C, U+200D, U+FEFF)
+    - Mixed Unicode normalization forms
+    - Extra newlines
+    - Mixed fullwidth/halfwidth characters
+    - Leading/trailing whitespace
+    
+    This normalization ensures VoxCPM receives clean text and produces
+    better pronunciation quality, similar to using external AI tools to
+    prepare the text.
+    """
+    import unicodedata
+    
+    # 1. Normalize Unicode to NFC (composed form — most stable)
+    text = unicodedata.normalize("NFC", text)
+    
+    # 2. Remove zero-width characters (silent but can break tokenization)
+    text = text.replace("\u200c", "")  # zero-width non-joiner
+    text = text.replace("\u200d", "")  # zero-width joiner
+    text = text.replace("\ufeff", "")  # zero-width no-break space (BOM)
+    text = text.replace("\u00ad", "")  # soft hyphen
+    
+    # 3. Normalize fullwidth to halfwidth for ASCII chars
+    normalized = ""
+    for ch in text:
+        if "\uff01" <= ch <= "\uff5e":  # fullwidth ! to ~
+            normalized += chr(ord(ch) - 0xFEE0)
+        else:
+            normalized += ch
+    text = normalized
+    
+    # 4. Replace mixed whitespace (tabs, non-breaking spaces, etc.) with regular space
+    import re
+    text = re.sub(r"[ \t\u00a0\u2000-\u200b\u202f\u205f]", " ", text)
+    
+    # 5. Collapse multiple spaces into one (but preserve newlines)
+    text = re.sub(r" {2,}", " ", text)
+    
+    # 6. Collapse multiple newlines into max 2 (one blank line)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    
+    # 7. Strip leading/trailing whitespace from each line
+    lines = [line.strip() for line in text.splitlines()]
+    text = "\n".join(lines)
+    
+    # 8. Final strip
+    text = text.strip()
+    
+    return text
 
 
 def _materialize_reference_wav(encoded_reference: str) -> str:
@@ -111,14 +176,21 @@ def _materialize_reference_wav(encoded_reference: str) -> str:
                 import librosa
                 data = librosa.resample(data.T if data.ndim == 2 else data, orig_sr=sample_rate, target_sr=target_rate).T
             except Exception:
-                # librosa unavailable — fall back to a simple linear interp
-                from numpy import interp
+                # librosa unavailable — fall back to a simple linear interp.
+                # x positions are normalized onto [0, 1) so xp and fp always
+                # have matching lengths regardless of the resample ratio.
                 old_len = data.shape[0]
                 new_len = int(round(old_len * target_rate / sample_rate))
+                if new_len < 1:
+                    new_len = 1
+                x_old = np.linspace(0.0, 1.0, old_len, endpoint=False)
+                x_new = np.linspace(0.0, 1.0, new_len, endpoint=False)
                 if data.ndim == 2:
-                    data = np.column_stack([interp(np.arange(new_len), np.linspace(0, old_len - 1, new_len), data[:, ch]) for ch in range(data.shape[1])])
+                    data = np.column_stack(
+                        [np.interp(x_new, x_old, data[:, ch]) for ch in range(data.shape[1])]
+                    )
                 else:
-                    data = interp(np.arange(new_len), np.linspace(0, old_len - 1, new_len), data)
+                    data = np.interp(x_new, x_old, data)
             sample_rate = target_rate
         frames = data.shape[0]
         max_frames = int(MAX_REFERENCE_AUDIO_SECONDS * sample_rate)
@@ -140,6 +212,7 @@ def _materialize_reference_wav(encoded_reference: str) -> str:
 def handler(event: dict) -> dict:
     request = event.get("input", {})
     text = str(request.get("text", "")).strip()
+    text = prepare_khmer_text(text)  # VOXCPM text preparation engine
     mode = str(request.get("mode", "design"))
     if not text:
         raise ValueError("text is required")

@@ -11,6 +11,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY worker/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
-COPY worker/handler.py ./handler.py
+COPY worker/handler.py worker/khmer_text_preparation.py ./
 ENV MODEL_ID=openbmb/VoxCPM2
 CMD ["python", "-u", "handler.py"]

@@ -5,6 +5,6 @@ FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
 WORKDIR /worker
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY handler.py .
+COPY handler.py khmer_text_preparation.py .
 ENV MODEL_ID=openbmb/VoxCPM2
 CMD ["python", "-u", "handler.py"]

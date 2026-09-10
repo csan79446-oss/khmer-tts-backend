@@ -12,6 +12,17 @@ import runpod
 import soundfile as sf
 from voxcpm import VoxCPM
 
+# Ensure the worker directory is importable when handler.py is loaded from a
+# different working directory (e.g. tests/test_worker.py loads it via
+# importlib from the repo root).
+import sys
+
+_WORKER_DIR = str(Path(__file__).resolve().parent)
+if _WORKER_DIR not in sys.path:
+    sys.path.insert(0, _WORKER_DIR)
+
+from khmer_text_preparation import prepare_khmer_text
+
 
 MODEL_ID = os.getenv("MODEL_ID", "openbmb/VoxCPM2")
 MODEL = VoxCPM.from_pretrained(
@@ -165,14 +176,21 @@ def _materialize_reference_wav(encoded_reference: str) -> str:
                 import librosa
                 data = librosa.resample(data.T if data.ndim == 2 else data, orig_sr=sample_rate, target_sr=target_rate).T
             except Exception:
-                # librosa unavailable — fall back to a simple linear interp
-                from numpy import interp
+                # librosa unavailable — fall back to a simple linear interp.
+                # x positions are normalized onto [0, 1) so xp and fp always
+                # have matching lengths regardless of the resample ratio.
                 old_len = data.shape[0]
                 new_len = int(round(old_len * target_rate / sample_rate))
+                if new_len < 1:
+                    new_len = 1
+                x_old = np.linspace(0.0, 1.0, old_len, endpoint=False)
+                x_new = np.linspace(0.0, 1.0, new_len, endpoint=False)
                 if data.ndim == 2:
-                    data = np.column_stack([interp(np.arange(new_len), np.linspace(0, old_len - 1, new_len), data[:, ch]) for ch in range(data.shape[1])])
+                    data = np.column_stack(
+                        [np.interp(x_new, x_old, data[:, ch]) for ch in range(data.shape[1])]
+                    )
                 else:
-                    data = interp(np.arange(new_len), np.linspace(0, old_len - 1, new_len), data)
+                    data = np.interp(x_new, x_old, data)
             sample_rate = target_rate
         frames = data.shape[0]
         max_frames = int(MAX_REFERENCE_AUDIO_SECONDS * sample_rate)
@@ -191,12 +209,10 @@ def _materialize_reference_wav(encoded_reference: str) -> str:
     return str(wav_path)
 
 
-
-
 def handler(event: dict) -> dict:
     request = event.get("input", {})
     text = str(request.get("text", "")).strip()
-    text = normalize_khmer_text(text)  # Clean Khmer text for better pronunciation
+    text = prepare_khmer_text(text)  # VOXCPM text preparation engine
     mode = str(request.get("mode", "design"))
     if not text:
         raise ValueError("text is required")
