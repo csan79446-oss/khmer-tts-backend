@@ -1,0 +1,7 @@
+# Pin torch to the exact version shipped in the base image (pytorch/pytorch:2.7.1-cuda12.8)
+# so pip never replaces it with the PyPI default wheel, which lacks Blackwell (sm_120) kernels.
+torch==2.7.1
+runpod>=1.7,<2
+voxcpm>=2.0,<3
+soundfile>=0.12,<1
+numpy>=1.26,<3
