@@ -59,6 +59,57 @@ def _filter_kwargs(kwargs: dict) -> dict:
 MAX_REFERENCE_AUDIO_SECONDS = float(os.getenv("MAX_REFERENCE_AUDIO_SECONDS", "10"))
 
 
+def normalize_khmer_text(text: str) -> str:
+    """Clean and normalize Khmer text for better VoxCPM pronunciation.
+    
+    Common issues in Khmer text that affect TTS:
+    - Extra/repeated spaces
+    - Zero-width joiners/non-joiners (U+200C, U+200D, U+FEFF)
+    - Mixed Unicode normalization forms
+    - Extra newlines
+    - Mixed fullwidth/halfwidth characters
+    - Leading/trailing whitespace
+    """
+    import unicodedata
+    
+    # 1. Normalize Unicode to NFC (composed form — most stable)
+    text = unicodedata.normalize("NFC", text)
+    
+    # 2. Remove zero-width characters (silent but can break tokenization)
+    text = text.replace("\u200c", "")  # zero-width non-joiner
+    text = text.replace("\u200d", "")  # zero-width joiner
+    text = text.replace("\ufeff", "")  # zero-width no-break space (BOM)
+    text = text.replace("\u00ad", "")  # soft hyphen
+    
+    # 3. Normalize fullwidth to halfwidth for ASCII chars
+    normalized = ""
+    for ch in text:
+        if "\uff01" <= ch <= "\uff5e":  # fullwidth ! to ~
+            normalized += chr(ord(ch) - 0xFEE0)
+        else:
+            normalized += ch
+    text = normalized
+    
+    # 4. Replace mixed whitespace (tabs, non-breaking spaces, etc.) with regular space
+    import re
+    text = re.sub(r"[ \t\u00a0\u2000-\u200b\u202f\u205f]", " ", text)
+    
+    # 5. Collapse multiple spaces into one (but preserve newlines)
+    text = re.sub(r" {2,}", " ", text)
+    
+    # 6. Collapse multiple newlines into max 2 (one blank line)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    
+    # 7. Strip leading/trailing whitespace from each line
+    lines = [line.strip() for line in text.splitlines()]
+    text = "\n".join(lines)
+    
+    # 8. Final strip
+    text = text.strip()
+    
+    return text
+
+
 def _materialize_reference_wav(encoded_reference: str) -> str:
     """Decode an arbitrary base64 audio payload into a plain PCM WAV temp file.
 
@@ -141,6 +192,7 @@ def _materialize_reference_wav(encoded_reference: str) -> str:
 def handler(event: dict) -> dict:
     request = event.get("input", {})
     text = str(request.get("text", "")).strip()
+    text = normalize_khmer_text(text)  # Clean Khmer text for better pronunciation
     mode = str(request.get("mode", "design"))
     if not text:
         raise ValueError("text is required")

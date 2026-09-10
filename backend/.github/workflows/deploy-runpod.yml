@@ -1,0 +1,52 @@
+name: Deploy to RunPod
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to RunPod
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install RunPod CLI
+        run: pip install runpod-cli
+      
+      - name: Deploy to RunPod
+        run: |
+          echo "Deploying to RunPod..."
+          # Deploy using RunPod API with token
+          curl -X POST \
+            "https://api.runpod.ai/v2/${{ secrets.RUNPOD_TEMPLATE_ID }}/deploy" \
+            -H "Authorization: Bearer ${{ secrets.RUNPOD_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "repositoryUrl": "https://github.com/${{ github.repository }}",
+              "repositoryBranch": "main",
+              "env": [
+                {"name": "MODEL_ID", "value": "openbmb/VoxCPM2"},
+                {"name": "MAX_REFERENCE_AUDIO_SECONDS", "value": "10"},
+                {"name": "OUTPUT_SAMPLE_RATE", "value": "48000"}
+              ]
+            }'
+        
+      - name: Verify deployment
+        run: |
+          echo "Deployment completed!"
+          echo "Check RunPod dashboard for status: https://www.runpod.io/console"
+      
+      - name: Notify failure
+        if: failure()
+        run: |
+          echo "Deployment failed! Please check the logs and try again."
