@@ -69,6 +69,10 @@ def normalize_khmer_text(text: str) -> str:
     - Extra newlines
     - Mixed fullwidth/halfwidth characters
     - Leading/trailing whitespace
+    
+    This normalization ensures VoxCPM receives clean text and produces
+    better pronunciation quality, similar to using external AI tools to
+    prepare the text.
     """
     import unicodedata
     
