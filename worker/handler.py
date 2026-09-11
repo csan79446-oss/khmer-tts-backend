@@ -298,10 +298,25 @@ def handler(event: dict) -> dict:
         stretch = float(request.get("time_stretch", os.getenv("TIME_STRETCH", "1.5")))
         if stretch > 1.0:
             print(f"[handler] TIME_STRETCH active: {stretch}x (pitch preserved, pace restored for Khmer)", flush=True)
+            # Import time_stretch module. On RunPod, handler.py and time_stretch.py
+            # are copied to the same directory (/worker), so a direct import works.
+            # In local/tests, they may be in worker/ subdirectory.
             try:
                 from time_stretch import wsola_time_stretch
-            except ImportError:  # repo-root imports (tests, local runs)
-                from worker.time_stretch import wsola_time_stretch
+            except ImportError:
+                try:
+                    from worker.time_stretch import wsola_time_stretch
+                except ImportError:
+                    # Fallback: import from the same directory as this file
+                    import importlib.util
+                    _ts_path = Path(__file__).resolve().parent / "time_stretch.py"
+                    if _ts_path.exists():
+                        spec = importlib.util.spec_from_file_location("time_stretch", _ts_path)
+                        _ts_module = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(_ts_module)
+                        wsola_time_stretch = _ts_module.wsola_time_stretch
+                    else:
+                        raise RuntimeError(f"time_stretch.py not found at {_ts_path}")
             n_before = int(wav.size)
             wav = wsola_time_stretch(wav, sample_rate, stretch)
             print(
