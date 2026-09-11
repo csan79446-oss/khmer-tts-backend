@@ -226,7 +226,50 @@ def main() -> None:
         assert "shorter" in str(exc), f"error should guide the user: {exc}"
     print("PASS 13: KV cache overflow raises a clear, actionable ValueError")
 
-    print("\nALL 13 WORKER TESTS PASSED")
+    # 14. text_preparation=false sends text verbatim (advanced desktop toggle);
+    #     the default keeps Khmer preparation enabled.
+    install_stubs(FakeModel)
+    mod = load_handler()
+    raw_text = "1234 ។"
+    mod.handler({"input": {"mode": "design", "text": raw_text, "text_preparation": False}})
+    assert captured["generate"]["text"] == raw_text, captured["generate"]["text"]
+    mod.handler({"input": {"mode": "design", "text": raw_text}})
+    prepared_text = captured["generate"]["text"]
+    assert prepared_text != raw_text, f"preparation did not run: {prepared_text!r}"
+    print("PASS 14: text_preparation=false bypasses Khmer normalization")
+
+    # 15. advanced params (CFG, denoise) pass through to generate()
+    mod.handler({"input": {"mode": "design", "text": "hi", "cfg_value": 2.5, "denoise": True}})
+    g = captured["generate"]
+    assert g["cfg_value"] == 2.5 and g["denoise"] is True, g
+    print("PASS 15: advanced params cfg_value/denoise pass through")
+
+    # 16. TIME_STRETCH (WSOLA pitch-preserving pace fix): stretches the decoded
+    #     waveform without changing the sample rate; default off.
+    install_stubs(FakeModel)
+    mod = load_handler()
+    mod.handler({"input": {"mode": "design", "text": "hi"}})
+    data_off, rate_off = captured["last_write"]
+    assert len(data_off) == 3 and rate_off == 48000, (len(data_off), rate_off)
+    os.environ["TIME_STRETCH"] = "2.0"
+    try:
+        result = mod.handler({"input": {"mode": "design", "text": "hi"}})
+    finally:
+        del os.environ["TIME_STRETCH"]
+    data_on, rate_on = captured["last_write"]
+    assert rate_on == 48000, f"stretch must not change rate: {rate_on}"
+    assert result["sample_rate"] == 48000
+    assert len(data_on) >= 5, f"expected ~2x samples, got {len(data_on)}"
+    assert len(data_on) <= 9, f"stretch overshoot: {len(data_on)}"
+    print("PASS 16: TIME_STRETCH stretches pace at fixed rate (pitch preserved), default 1.5x for Khmer")
+
+    # 17. time_stretch per-request parameter overrides the env default
+    result = mod.handler({"input": {"mode": "design", "text": "hi", "time_stretch": 2.0}})
+    data_req, _ = captured["last_write"]
+    assert len(data_req) == len(data_on), (len(data_req), len(data_on))
+    print("PASS 17: per-request time_stretch param works")
+
+    print("\nALL 17 WORKER TESTS PASSED")
 
 
 if __name__ == "__main__":

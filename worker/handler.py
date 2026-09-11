@@ -212,7 +212,10 @@ def _materialize_reference_wav(encoded_reference: str) -> str:
 def handler(event: dict) -> dict:
     request = event.get("input", {})
     text = str(request.get("text", "")).strip()
-    text = prepare_khmer_text(text)  # VOXCPM text preparation engine
+    # VOXCPM text preparation engine (Khmer normalization). The desktop client
+    # can disable it per request with "text_preparation": false.
+    if bool(request.get("text_preparation", True)):
+        text = prepare_khmer_text(text)
     mode = str(request.get("mode", "design"))
     if not text:
         raise ValueError("text is required")
@@ -285,6 +288,27 @@ def handler(event: dict) -> dict:
                 print(f"[handler] wrapper reported {reported_rate} Hz but VoxCPM2 decoder outputs at 48000 Hz; forcing 48000 Hz (set OUTPUT_SAMPLE_RATE to override)", flush=True)
         else:
             sample_rate = reported_rate
+        # Pitch-preserving pace fix (WSOLA). VoxCPM2's LM reads out-of-domain
+        # scripts such as Khmer ~1.2-1.5x too fast; stretching the decoded
+        # waveform restores the natural pace without lowering the voice's
+        # pitch (a WAV-header slow-down would). Default to 1.5x for Khmer
+        # (and other out-of-domain scripts) to ensure natural-sounding output.
+        # Can be overridden per-request with "time_stretch": <value> or via
+        # the TIME_STRETCH env var (set to "0" to disable).
+        stretch = float(request.get("time_stretch", os.getenv("TIME_STRETCH", "1.5")))
+        if stretch > 1.0:
+            print(f"[handler] TIME_STRETCH active: {stretch}x (pitch preserved, pace restored for Khmer)", flush=True)
+            try:
+                from time_stretch import wsola_time_stretch
+            except ImportError:  # repo-root imports (tests, local runs)
+                from worker.time_stretch import wsola_time_stretch
+            n_before = int(wav.size)
+            wav = wsola_time_stretch(wav, sample_rate, stretch)
+            print(
+                f"[handler] TIME_STRETCH {stretch}x: {n_before} -> {int(wav.size)} samples "
+                f"at {sample_rate} Hz (pace restored, pitch preserved)",
+                flush=True,
+            )
         duration = float(len(wav)) / float(sample_rate)
         print(
             f"[handler] output: sample_rate={sample_rate} Hz, samples={len(wav)}, duration={duration:.2f}s",
