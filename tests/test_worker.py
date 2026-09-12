@@ -93,7 +93,7 @@ def install_stubs(model_cls):
 
 
 def load_handler():
-    spec = importlib.util.spec_from_file_location("worker_handler", "backend/worker/handler.py")
+    spec = importlib.util.spec_from_file_location("worker_handler", "worker/handler.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -244,32 +244,7 @@ def main() -> None:
     assert g["cfg_value"] == 2.5 and g["denoise"] is True, g
     print("PASS 15: advanced params cfg_value/denoise pass through")
 
-    # 16. TIME_STRETCH (WSOLA pitch-preserving pace fix): stretches the decoded
-    #     waveform without changing the sample rate; default off.
-    install_stubs(FakeModel)
-    mod = load_handler()
-    mod.handler({"input": {"mode": "design", "text": "hi"}})
-    data_off, rate_off = captured["last_write"]
-    assert len(data_off) == 3 and rate_off == 48000, (len(data_off), rate_off)
-    os.environ["TIME_STRETCH"] = "2.0"
-    try:
-        result = mod.handler({"input": {"mode": "design", "text": "hi"}})
-    finally:
-        del os.environ["TIME_STRETCH"]
-    data_on, rate_on = captured["last_write"]
-    assert rate_on == 48000, f"stretch must not change rate: {rate_on}"
-    assert result["sample_rate"] == 48000
-    assert len(data_on) >= 5, f"expected ~2x samples, got {len(data_on)}"
-    assert len(data_on) <= 9, f"stretch overshoot: {len(data_on)}"
-    print("PASS 16: TIME_STRETCH stretches pace at fixed rate (pitch preserved), default 1.5x for Khmer")
-
-    # 17. time_stretch per-request parameter overrides the env default
-    result = mod.handler({"input": {"mode": "design", "text": "hi", "time_stretch": 2.0}})
-    data_req, _ = captured["last_write"]
-    assert len(data_req) == len(data_on), (len(data_req), len(data_on))
-    print("PASS 17: per-request time_stretch param works")
-
-    print("\nALL 17 WORKER TESTS PASSED")
+    print("\nALL 15 WORKER TESTS PASSED")
 
 
 if __name__ == "__main__":

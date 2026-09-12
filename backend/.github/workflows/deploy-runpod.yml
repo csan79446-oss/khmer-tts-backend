@@ -37,8 +37,7 @@ jobs:
               "env": [
                 {"name": "MODEL_ID", "value": "openbmb/VoxCPM2"},
                 {"name": "MAX_REFERENCE_AUDIO_SECONDS", "value": "10"},
-                {"name": "OUTPUT_SAMPLE_RATE", "value": "48000"},
-                {"name": "TIME_STRETCH", "value": "1.5"}
+                {"name": "OUTPUT_SAMPLE_RATE", "value": "48000"}
               ]
             }'
         

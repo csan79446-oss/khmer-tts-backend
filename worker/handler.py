@@ -288,42 +288,6 @@ def handler(event: dict) -> dict:
                 print(f"[handler] wrapper reported {reported_rate} Hz but VoxCPM2 decoder outputs at 48000 Hz; forcing 48000 Hz (set OUTPUT_SAMPLE_RATE to override)", flush=True)
         else:
             sample_rate = reported_rate
-        # Pitch-preserving pace fix (WSOLA). VoxCPM2's LM reads out-of-domain
-        # scripts such as Khmer ~1.2-1.5x too fast; stretching the decoded
-        # waveform restores the natural pace without lowering the voice's
-        # pitch (a WAV-header slow-down would). Default to 1.5x for Khmer
-        # (and other out-of-domain scripts) to ensure natural-sounding output.
-        # Can be overridden per-request with "time_stretch": <value> or via
-        # the TIME_STRETCH env var (set to "0" to disable).
-        stretch = float(request.get("time_stretch", os.getenv("TIME_STRETCH", "1.5")))
-        if stretch > 1.0:
-            print(f"[handler] TIME_STRETCH active: {stretch}x (pitch preserved, pace restored for Khmer)", flush=True)
-            # Import time_stretch module. On RunPod, handler.py and time_stretch.py
-            # are copied to the same directory (/worker), so a direct import works.
-            # In local/tests, they may be in worker/ subdirectory.
-            try:
-                from time_stretch import wsola_time_stretch
-            except ImportError:
-                try:
-                    from worker.time_stretch import wsola_time_stretch
-                except ImportError:
-                    # Fallback: import from the same directory as this file
-                    import importlib.util
-                    _ts_path = Path(__file__).resolve().parent / "time_stretch.py"
-                    if _ts_path.exists():
-                        spec = importlib.util.spec_from_file_location("time_stretch", _ts_path)
-                        _ts_module = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(_ts_module)
-                        wsola_time_stretch = _ts_module.wsola_time_stretch
-                    else:
-                        raise RuntimeError(f"time_stretch.py not found at {_ts_path}")
-            n_before = int(wav.size)
-            wav = wsola_time_stretch(wav, sample_rate, stretch)
-            print(
-                f"[handler] TIME_STRETCH {stretch}x: {n_before} -> {int(wav.size)} samples "
-                f"at {sample_rate} Hz (pace restored, pitch preserved)",
-                flush=True,
-            )
         duration = float(len(wav)) / float(sample_rate)
         print(
             f"[handler] output: sample_rate={sample_rate} Hz, samples={len(wav)}, duration={duration:.2f}s",
