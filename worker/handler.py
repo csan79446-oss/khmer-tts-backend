@@ -107,7 +107,7 @@ def normalize_khmer_text(text: str) -> str:
     
     # 4. Replace mixed whitespace (tabs, non-breaking spaces, etc.) with regular space
     import re
-    text = re.sub(r"[ \t\u00a0\u2000-\u200b\u202f\u205f]", " ", text)
+    text = re.sub(r"[ \t\u00a0\u2000-\u200b\u202f\u205f\u3000]", " ", text)
     
     # 5. Collapse multiple spaces into one (but preserve newlines)
     text = re.sub(r" {2,}", " ", text)
@@ -238,9 +238,9 @@ def handler(event: dict) -> dict:
             text = f"({control_text}){text}"
         kwargs = {
             "text": text,
-            "cfg_value": float(request.get("cfg_value", 1.5)),
+            "cfg_value": float(request.get("cfg_value", 1.2)),
             "inference_timesteps": int(request.get("inference_timesteps", 20)),
-            "normalize": bool(request.get("normalize", False)),
+            "normalize": bool(request.get("normalize", True)),
             "denoise": bool(request.get("denoise", True)),
         }
         if request.get("seed") is not None:

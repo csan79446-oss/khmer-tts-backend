@@ -270,8 +270,14 @@ def organize_paragraphs(text: str) -> str:
 def cleanup_punctuation(text: str) -> str:
     """Final cleanup of punctuation and whitespace artifacts."""
     text = re.sub(r"\s+([.!?,])", r"\1", text)
-    khmer_char = r"[\u1780-\u17ff]"
-    text = re.sub(r"([.!?,])\s*([chr(0x17E1)-chr(0x17E9)0-9a-zA-Z" + khmer_char + r"])", r"\1 \2", text)
+    khmer_chars = r"\u1780-\u17FF\u17E0-\u17E9"
+    text = re.sub(
+        r"([.!?,])\s*(["
+        + khmer_chars
+        + r"0-9a-zA-Z])",
+        r"\1 \2",
+        text,
+    )
     text = re.sub(r" {2,}", " ", text)
     lines = [line.strip() for line in text.split("\n")]
     text = "\n".join(lines)

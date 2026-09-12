@@ -39,9 +39,9 @@ class GenerationRequest(BaseModel):
     reference_audio_base64: str | None = Field(default=None, max_length=MAX_REFERENCE_AUDIO_BASE64_LENGTH)
     prompt_text: str | None = Field(default=None, max_length=5000)
     text_preparation: bool = True
-    cfg_value: float = Field(default=1.5, ge=1.0, le=3.0)
+    cfg_value: float = Field(default=1.2, ge=1.0, le=3.0)
     inference_timesteps: int = Field(default=20, ge=4, le=30)
-    normalize: bool = False
+    normalize: bool = True
     denoise: bool = True
     seed: int | None = Field(default=None, ge=0)
 
