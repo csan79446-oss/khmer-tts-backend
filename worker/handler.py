@@ -238,10 +238,10 @@ def handler(event: dict) -> dict:
             text = f"({control_text}){text}"
         kwargs = {
             "text": text,
-            "cfg_value": float(request.get("cfg_value", 2.0)),
-            "inference_timesteps": int(request.get("inference_timesteps", 10)),
+            "cfg_value": float(request.get("cfg_value", 1.5)),
+            "inference_timesteps": int(request.get("inference_timesteps", 20)),
             "normalize": bool(request.get("normalize", False)),
-            "denoise": bool(request.get("denoise", False)),
+            "denoise": bool(request.get("denoise", True)),
         }
         if request.get("seed") is not None:
             kwargs["seed"] = request.get("seed")
