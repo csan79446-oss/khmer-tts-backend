@@ -238,8 +238,11 @@ def handler(event: dict) -> dict:
             text = f"({control_text}){text}"
         kwargs = {
             "text": text,
-            "cfg_value": float(request.get("cfg_value", 1.2)),
-            "inference_timesteps": int(request.get("inference_timesteps", 20)),
+            # Quality-first defaults (user-tuned): cfg≈2.0 gives crisper
+            # articulation for Khmer; 28 diffusion steps smooth the output.
+            # Per-request overrides still win.
+            "cfg_value": float(request.get("cfg_value", 2.0)),
+            "inference_timesteps": int(request.get("inference_timesteps", 28)),
             "normalize": bool(request.get("normalize", True)),
             "denoise": bool(request.get("denoise", True)),
         }

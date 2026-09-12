@@ -39,8 +39,11 @@ class GenerationRequest(BaseModel):
     reference_audio_base64: str | None = Field(default=None, max_length=MAX_REFERENCE_AUDIO_BASE64_LENGTH)
     prompt_text: str | None = Field(default=None, max_length=5000)
     text_preparation: bool = True
-    cfg_value: float = Field(default=1.2, ge=1.0, le=3.0)
-    inference_timesteps: int = Field(default=20, ge=4, le=30)
+    # Quality-first defaults: cfg≈2.0 for crisper Khmer articulation,
+    # 28 diffusion steps for smoother output. These are serialized into every
+    # RunPod job, so they define the effective worker defaults.
+    cfg_value: float = Field(default=2.0, ge=1.0, le=3.0)
+    inference_timesteps: int = Field(default=28, ge=4, le=30)
     normalize: bool = True
     denoise: bool = True
     seed: int | None = Field(default=None, ge=0)
