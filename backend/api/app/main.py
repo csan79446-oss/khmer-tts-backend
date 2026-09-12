@@ -40,11 +40,14 @@ class GenerationRequest(BaseModel):
     prompt_text: str | None = Field(default=None, max_length=5000)
     text_preparation: bool = True
     # Quality-first defaults: cfg≈2.0 for crisper Khmer articulation,
-    # 28 diffusion steps for smoother output. These are serialized into every
-    # RunPod job, so they define the effective worker defaults.
+    # 30 diffusion steps for smoother output, and no built-in normalizer
+    # (the Khmer text-prep engine is the authoritative normalizer — VoxCPM's
+    # EN/CN normalizer would rewrite Khmer digits/dates into English words).
+    # These are serialized into every RunPod job, so they define the effective
+    # worker defaults.
     cfg_value: float = Field(default=2.0, ge=1.0, le=3.0)
-    inference_timesteps: int = Field(default=28, ge=4, le=30)
-    normalize: bool = True
+    inference_timesteps: int = Field(default=30, ge=4, le=40)
+    normalize: bool = False
     denoise: bool = True
     seed: int | None = Field(default=None, ge=0)
 

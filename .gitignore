@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+*.db
+*.wav
+*.mp3
+*.flac
+build/
+dist/
+.tmp_tests/
+
+# Runtime logs and scratch / validation scripts (never commit)
+*.log
+fix_*.py
+test_fixes.py
+test_regex.py
+verify_fixes.py
+AppKhmer_TTS.tmp_testsofficial_app.py

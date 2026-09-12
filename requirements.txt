@@ -1,0 +1,7 @@
+PySide6>=6.7,<7
+httpx>=0.27,<1
+python-dotenv>=1.0,<2
+edge-tts>=7.0,<8
+soundfile>=0.12,<1
+numpy>=1.26,<3
+PyInstaller>=6.10,<7

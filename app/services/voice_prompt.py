@@ -2,69 +2,121 @@ from __future__ import annotations
 
 
 def build_voice_prompt(values: dict[str, str]) -> str:
-    """Build a concise, high-impact voice prompt for VoxCPM2.
+    """Build a rich, descriptive voice prompt for VoxCPM2.
 
-    VoxCPM2 responds best to short natural-language style instructions.
-    Long comma-separated attribute lists dilute the signal and consume
-    KV cache tokens that would otherwise be available for content.
-    Priority: speed > clarity > style > emotion > tone > gender/age > custom.
+    VoxCPM2 responds best to natural-language voice descriptions
+    that paint a complete picture — like a director describing a character.
+    Short comma-separated keywords dilute the signal and produce flat audio.
     """
-    # Speed is the highest-impact attribute — put it first, phrased naturally
-    speed = _format_speed(values.get("speed", "").strip())
+    parts: list[str] = []
 
-    # Collect other attributes in priority order
-    clarity = values.get("clarity", "").strip()
-    style = values.get("style", "").strip()
-    emotion = values.get("emotion", "").strip()
+    # Base voice character
+    gender = values.get("gender", "").strip() or "female"
+    age = values.get("age", "").strip() or "adult"
     tone = values.get("tone", "").strip()
-    gender = values.get("gender", "").strip()
-    age = values.get("age", "").strip()
-    custom = values.get("custom", "").strip()
 
-    # Build a natural-language phrase instead of comma-separated list
-    parts = []
-    if speed:
-        parts.append(speed)
-    if clarity:
-        parts.append(clarity)
-    if style:
-        parts.append(style)
-    if emotion:
-        parts.append(emotion)
+    # Build rich character descriptors
+    descriptors = []
+
+    # Tone is the primary character descriptor
     if tone:
-        parts.append(tone)
-    if gender and age:
-        parts.append(f"{gender} {age} voice")
-    elif gender:
-        parts.append(f"{gender} voice")
-    elif age:
-        parts.append(f"{age} voice")
+        descriptors.append(tone)
+    else:
+        descriptors.append("warm")
+
+    # Add emotion descriptors
+    emotion = values.get("emotion", "").strip()
+    if emotion:
+        # Map common emotions to richer descriptions
+        emotion_map = {
+            "happy": "cheerful and uplifting",
+            "sad": "soft and melancholic",
+            "angry": "intense and powerful",
+            "calm": "serene and composed",
+            "serious": "authoritative and confident",
+            "playful": "fun and playful",
+            "confident": "confident and assured",
+        }
+        descriptors.append(emotion_map.get(emotion.lower(), emotion))
+
+    # Add style descriptors
+    style = values.get("style", "").strip()
+    if style:
+        style_map = {
+            "professional": "polished and professional",
+            "natural": "natural and authentic",
+            "conversational": "natural and conversational",
+            "casual": "natural and approachable",
+            "dramatic": "expressive and dynamic",
+            "gentle": "soft and soothing",
+            "energetic": "lively and energetic",
+        }
+        descriptors.append(style_map.get(style.lower(), style))
+
+    # Main voice character sentence
+    parts.append(f"A {gender} {age} voice that is {_join_natural(descriptors)}.")
+
+    # Speaking pace
+    speed = values.get("speed", "").strip()
+    if speed:
+        speed_map = {
+            "slow": "speaks slowly and deliberately",
+            "slower": "speaks slowly and deliberately",
+            "medium": "speaks at a natural, conversational pace",
+            "normal": "speaks at a natural, conversational pace",
+            "fast": "speaks with energetic, lively pacing",
+            "faster": "speaks with energetic, lively pacing",
+        }
+        speed_phrase = speed_map.get(speed.lower(), f"speaks at a {speed} pace")
+        parts.append(f"The speaker {speed_phrase}.")
+
+    # Clarity / pronunciation note
+    clarity = values.get("clarity", "").strip()
+    if clarity:
+        parts.append(f"{clarity}.")
+    else:
+        parts.append("Clear native pronunciation with natural emotional expression.")
+
+    # Use case context based on style/emotion
+    emotion_lower = emotion.lower() if emotion else ""
+    style_lower = style.lower() if style else ""
+
+    if emotion_lower in ("happy", "playful", "confident") or style_lower in ("professional", "energetic"):
+        parts.append(
+            "The tone should be friendly, engaging, and trustworthy, "
+            "suitable for commercial advertising or social media content."
+        )
+    elif emotion_lower in ("serious", "calm") or style_lower == "professional":
+        parts.append(
+            "The tone should be authoritative and trustworthy, "
+            "suitable for informative content or announcements."
+        )
+    elif emotion_lower == "calm" or style_lower in ("gentle", "casual"):
+        parts.append(
+            "The tone should be pleasant and reassuring, "
+            "suitable for lifestyle or relaxation content."
+        )
+
+    # Technical delivery note
+    parts.append(
+        "Smooth delivery with natural pauses, excellent articulation, "
+        "and memorable commercial quality."
+    )
+
+    # Custom note at the end
+    custom = values.get("custom", "").strip()
     if custom:
         parts.append(custom)
 
-    # Join with periods for clearer sentence boundaries (better than commas)
-    return ". ".join(parts)
+    return " ".join(parts)
 
 
-def _format_speed(speed: str) -> str:
-    """Convert speed value to a clear natural-language phrase.
-
-    VoxCPM2 has no direct speed parameter — it interprets style text.
-    Short imperative phrases work better than descriptive labels.
-    """
-    if not speed:
+def _join_natural(items: list[str], conjunction: str = "and") -> str:
+    """Join a list into natural English: 'a, b, and c'."""
+    if not items:
         return ""
-    speed_lower = speed.lower()
-    # Already a phrase with speed/rate keyword — keep as-is
-    if "speed" in speed_lower or "rate" in speed_lower:
-        return speed
-    # Map common values to natural imperative phrases
-    mapping = {
-        "slow": "speak slowly",
-        "slower": "speak slowly",
-        "fast": "speak quickly",
-        "faster": "speak quickly",
-        "medium": "speak at a normal pace",
-        "normal": "speak at a normal pace",
-    }
-    return mapping.get(speed_lower, f"speak at {speed} speed")
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return f"{', '.join(items[:-1])}, and {items[-1]}"

@@ -5,3 +5,7 @@ runpod>=1.7,<2
 voxcpm>=2.0,<3
 soundfile>=0.12,<1
 numpy>=1.26,<3
+# Band-limited reference resampling + extra container support (MP3/M4A via
+# audioread). Keeps clone timing/spectrum accurate for non-48kHz references
+# instead of falling back to aliasing linear interpolation.
+librosa>=0.10,<1

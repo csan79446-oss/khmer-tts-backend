@@ -37,6 +37,30 @@ Build and deploy the worker image to a RunPod Serverless queue endpoint. Configu
 
 The worker explicitly sets `optimize=False`. This avoids PyTorch Inductor trying to compile native code in the container, which can fail with `Failed to find C compiler`. Keep this setting for the first deployment; optimize only after adding and validating a compatible compiler toolchain.
 
+## Audio quality settings
+
+Quality-first defaults are baked into the worker and FastAPI API:
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `cfg_value` | `2.0` | Classifier-free guidance. Higher = crisper adherence to the text/voice prompt; >2.5 can sound harsh. |
+| `inference_timesteps` | `30` (API allows `4..40`) | LocDiT flow-matching steps. More steps = smoother audio, linear speed cost; 30 is the quality/cost sweet spot. |
+| `normalize` | `false` | VoxCPM's built-in normalizer is English/Chinese and would rewrite Khmer digits/dates into English words. The Khmer text-prep engine (14 rules) is the authoritative normalizer, so built-in normalization is off by default. |
+| `denoise` | `true` | Enhances clone reference audio when the denoiser is loaded (see `LOAD_DENOISER` below). |
+| `retry_badcase` | `true` (max 3 retries) | Re-rolls the sample when the audio/text length ratio looks wrong, avoiding garbled output. |
+
+Every generated WAV also passes through a worker-side mastering chain before encoding: DC-offset removal, 5 ms edge fades (no boundary clicks), a gentle loudness lift for very quiet output, and a true-peak guard at -0.45 dBFS so 16-bit output never clips.
+
+### Worker environment variables
+
+- `LOAD_DENOISER=1` loads the ZipEnhancer denoiser (ModelScope `iic/speech_zipenhancer_ans_multiloss_16k_base`) so `denoise=true` actually cleans noisy reference audio before cloning. Off by default because it downloads an extra model at cold start; enable it on a GPU with spare VRAM for the best clone quality.
+- `MAX_REFERENCE_AUDIO_SECONDS` (default `10`) caps prompt audio length to keep VoxCPM2's 8192-token KV cache from overflowing.
+- `OUTPUT_SAMPLE_RATE` overrides the forced 48 kHz VoxCPM2 output rate.
+
+### Desktop quality controls
+
+The desktop TTS page adds a **VoxCPM2 audio quality** selector: **Best (30 steps)** or **Standard (24 steps)**. Voice Design and Voice Clone pages let you store a per-voice CFG value (default 2.0) and a denoise flag per clone.
+
 The initial API stores completed audio in process memory for development only. Do not run multiple API instances or restart the API in production until this is replaced with private object storage and a persistent job store. A RunPod worker restart is expected and does not preserve API memory.
 
 ## RunPod GitHub deployment

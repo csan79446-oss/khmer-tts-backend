@@ -25,9 +25,15 @@ from khmer_text_preparation import prepare_khmer_text
 
 
 MODEL_ID = os.getenv("MODEL_ID", "openbmb/VoxCPM2")
+# ZipEnhancer (ModelScope "iic/speech_zipenhancer_ans_multiloss_16k_base")
+# denoises and restores noisy reference audio before cloning.
+# It downloads an extra model at cold start, so it is opt-in via LOAD_DENOISER=1.
+# When enabled, request-level denoise=True actually runs the enhancer on the
+# reference; when disabled it is a no-op (as before).
+LOAD_DENOISER = os.getenv("LOAD_DENOISER", "0").lower() in {"1", "true", "yes"}
 MODEL = VoxCPM.from_pretrained(
     MODEL_ID,
-    load_denoiser=False,
+    load_denoiser=LOAD_DENOISER,
     device="auto",
     optimize=False,
 )
@@ -209,6 +215,57 @@ def _materialize_reference_wav(encoded_reference: str) -> str:
     return str(wav_path)
 
 
+def _master_audio(wav: np.ndarray, sample_rate: int) -> np.ndarray:
+    """Lightweight mastering that makes VoxCPM output sound consistently clean.
+
+    VoxCPM's audio VAE returns float32 samples whose level varies between
+    voices and which sometimes carry a small DC offset or edge clicks. This
+    chain (pure numpy, no extra deps) fixes all three:
+
+      1. DC offset removal
+      2. 5 ms fade-in / fade-out to kill boundary clicks
+      3. gentle loudness lift for very quiet output + true-peak protection
+
+    Length and sample rate are preserved, so the WAV header stays correct.
+    """
+    wav = np.asarray(wav, dtype=np.float32)
+    n = wav.shape[0]
+    if n == 0:
+        return wav
+
+    # 1. DC offset removal
+    wav = wav - wav.mean()
+
+    # 2. Edge fades (5 ms, capped to half the signal for very short clips)
+    fade = min(int(0.005 * sample_rate), max(1, n // 2))
+    if n > 2:
+        ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
+        wav[:fade] *= ramp
+        wav[-fade:] *= ramp[::-1]
+
+    # 3. Loudness + peak safety
+    peak = float(np.max(np.abs(wav))) if n else 0.0
+    if peak > 1e-6:
+        # True-peak guard: never exceed 0.95 (-0.45 dBFS) so the 16-bit WAV
+        # neither clips nor sounds harsh.
+        if peak > 0.95:
+            wav = wav * (0.95 / peak)
+            peak = 0.95
+        # Lift only very quiet output (RMS below -30 dBFS) toward -24 dBFS so
+        # every voice is audible at a similar level; cap the boost at +12 dB to
+        # avoid amplifying the model's noise floor.
+        rms = float(np.sqrt(np.mean(np.square(wav)))) if n else 0.0
+        if rms > 1e-7:
+            rms_db = 20.0 * np.log10(rms)
+            if rms_db < -30.0:
+                gain = min(10.0 ** ((-24.0 - rms_db) / 20.0), 10.0 ** (12.0 / 20.0))
+                wav = wav * gain
+                peak = float(np.max(np.abs(wav)))
+                if peak > 0.95:
+                    wav = wav * (0.95 / peak)
+    return wav
+
+
 def handler(event: dict) -> dict:
     request = event.get("input", {})
     text = str(request.get("text", "")).strip()
@@ -238,13 +295,22 @@ def handler(event: dict) -> dict:
             text = f"({control_text}){text}"
         kwargs = {
             "text": text,
-            # Quality-first defaults (user-tuned): cfg≈2.0 gives crisper
-            # articulation for Khmer; 28 diffusion steps smooth the output.
+            # Quality-first defaults (tuned for the best Khmer output):
+            #   - cfg_value 2.0 keeps articulation crisp without harsh artifacts
+            #   - 30 flow-matching steps smooths the audio (diminishing returns
+            #     past ~30, so 30 is the quality/cost sweet spot)
+            #   - normalize=False: our Khmer text-prep engine is the
+            #     authoritative normalizer; VoxCPM's built-in EN/CN normalizer
+            #     would rewrite Khmer digits/dates into English words
+            #   - retry_badcase=True: re-rolls the sample when the audio/text
+            #     ratio looks wrong, avoiding garbled output
             # Per-request overrides still win.
             "cfg_value": float(request.get("cfg_value", 2.0)),
-            "inference_timesteps": int(request.get("inference_timesteps", 28)),
-            "normalize": bool(request.get("normalize", True)),
+            "inference_timesteps": int(request.get("inference_timesteps", 30)),
+            "normalize": bool(request.get("normalize", False)),
             "denoise": bool(request.get("denoise", True)),
+            "retry_badcase": True,
+            "retry_badcase_max_times": 3,
         }
         if request.get("seed") is not None:
             kwargs["seed"] = request.get("seed")
@@ -291,9 +357,14 @@ def handler(event: dict) -> dict:
                 print(f"[handler] wrapper reported {reported_rate} Hz but VoxCPM2 decoder outputs at 48000 Hz; forcing 48000 Hz (set OUTPUT_SAMPLE_RATE to override)", flush=True)
         else:
             sample_rate = reported_rate
+        # Master the waveform (DC removal, edge fades, loudness/peak control)
+        # before encoding so every voice comes out clean and consistently loud.
+        wav = _master_audio(wav, sample_rate)
         duration = float(len(wav)) / float(sample_rate)
+        peak_db = 20.0 * np.log10(float(np.max(np.abs(wav))) + 1e-12)
         print(
-            f"[handler] output: sample_rate={sample_rate} Hz, samples={len(wav)}, duration={duration:.2f}s",
+            f"[handler] output: sample_rate={sample_rate} Hz, samples={len(wav)}, "
+            f"duration={duration:.2f}s, peak={peak_db:.1f} dBFS",
             flush=True,
         )
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as output:
